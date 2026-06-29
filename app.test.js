@@ -1,7 +1,9 @@
 const request = require('supertest');
 const app = require('./app');
 
-test('GET / returns 200', async () => {
-  const response = await request(app).get('/');
-  expect(response.statusCode).toBe(200);
+describe('GET /', () => {
+  it('should return Hello From CI/CD Demo App', async () => {
+    const res = await request(app).get('/');
+    expect(res.text).toBe('Hello From CI/CD Demo App');
+  });
 });
