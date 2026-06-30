@@ -1,353 +1,191 @@
-# CI/CD Pipeline for Express.js Application
+# Simple CI/CD Pipeline with Jenkins, Docker & AWS EC2
 
-A production-ready Express.js application demonstrating Continuous Integration and Continuous Deployment (CI/CD) using GitHub Actions, Docker, and Docker Hub.
+A basic Node.js application demonstrating a full CI/CD pipeline using Jenkins, Docker, and DockerHub, deployed on an AWS EC2 instance.
 
 ## Project Overview
 
-This project showcases how to automate the software delivery process using GitHub Actions. Whenever code is pushed to the `main` branch, the pipeline automatically:
+This project automates the build, test, and deployment process for a simple Express.js app. On every push to the `main` branch, Jenkins:
 
-- Installs project dependencies
-- Executes unit/API tests using Supertest
-- Builds a Docker image
-- Pushes the image to Docker Hub
+1. Pulls the latest code
+2. Installs dependencies
+3. Runs tests
+4. Builds a Docker image
+5. Pushes the image to DockerHub
+6. Deploys the container
 
-This workflow ensures that every code change is tested and packaged consistently before deployment.
+## Tech Stack
 
----
-
-## Technologies Used
-
-- Node.js
-- Express.js
-- Jest
-- Supertest
-- Docker
-- Docker Hub
-- GitHub Actions
-
----
+- **App:** Node.js, Express
+- **Testing:** Jest
+- **CI/CD:** Jenkins
+- **Containerization:** Docker
+- **Registry:** DockerHub
+- **Hosting:** AWS EC2 (Ubuntu)
 
 ## Project Structure
 
 ```
-.
-├── .github
-│   └── workflows
-│       └── main.yml
-├── tests
-│   └── app.test.js
-├── app.js
-├── server.js
-├── Dockerfile
+simple-cicd-app/
+├── index.js          # Express app entry point
+├── app.test.js       # Basic test suite
 ├── package.json
+├── Dockerfile         # Container build instructions
 ├── .dockerignore
-├── .gitignore
+├── Jenkinsfile         # Pipeline definition
 └── README.md
 ```
 
----
+## Prerequisites
 
-## Features
+- AWS account with an EC2 instance (Ubuntu 22.04 LTS recommended)
+- DockerHub account
+- GitHub account
+- Docker installed locally (optional, for local testing)
 
-- REST API built with Express.js
-- Automated API testing using Supertest
-- Dockerized application
-- GitHub Actions CI/CD pipeline
-- Docker image publishing to Docker Hub
-- Automatic workflow execution on every push to `main`
+## Setup Instructions
 
----
-
-# Installation
-
-Clone the repository
+### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/your-repository.git
-
-cd your-repository
+git clone https://github.com/yourusername/simple-cicd-app.git
+cd simple-cicd-app
 ```
 
-Install dependencies
+### 2. Launch an EC2 instance
+
+- AMI: Ubuntu Server 22.04 LTS
+- Instance type: t3.small (minimum recommended for Jenkins)
+- Security Group inbound rules:
+  - SSH (22) — My IP
+  - Custom TCP (8080) — Anywhere (Jenkins dashboard)
+  - Custom TCP (50000) — Anywhere (Jenkins agents)
+  - Custom TCP (3000) — Anywhere (deployed app, optional)
+- Storage: 20 GB minimum
+
+### 3. Install Docker on EC2
+
+```bash
+ssh -i your-key.pem ubuntu@<EC2-PUBLIC-IP>
+sudo apt update
+sudo apt install -y docker.io
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo usermod -aG docker ubuntu
+```
+Log out and back in for group changes to apply.
+
+### 4. Run Jenkins as a container
+
+```bash
+docker volume create jenkins_home
+
+docker run -d -p 8080:8080 -p 50000:50000 -v jenkins_home:/var/jenkins_home -v /var/run/docker.sock:/var/run/docker.sock --name jenkins jenkins/jenkins:lts
+```
+
+Get the initial admin password:
+```bash
+docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+Access Jenkins at `http://<EC2-PUBLIC-IP>:8080`, complete setup, and install suggested plugins.
+
+### 5. Fix Docker socket permissions inside the Jenkins container
+
+```bash
+sudo docker exec -u root jenkins chmod 666 /var/run/docker.sock
+sudo docker exec -u root jenkins sh -c "apt-get update && apt-get install -y docker.io"
+```
+
+### 6. Install the Docker Pipeline plugin
+
+Manage Jenkins → Plugins → Available plugins → search "Docker Pipeline" → install → restart Jenkins.
+
+### 7. Add credentials in Jenkins
+
+**DockerHub credentials** (Manage Jenkins → Credentials → Add Credentials):
+- Kind: Username with password
+- Username/Password: DockerHub login (access token recommended over real password)
+- ID: `dockerhub-credentials`
+
+**GitHub credentials** (if repo is private):
+- Kind: Username with password (use a Personal Access Token as password)
+- ID: `github-credentials`
+
+### 8. Create the Jenkins pipeline job
+
+- New Item → Pipeline → name it
+- Build Triggers: check "GitHub hook trigger for GITScm polling"
+- Pipeline → Definition: "Pipeline script from SCM"
+- SCM: Git → repository URL → credentials if private
+- Branch: `*/main`
+- Script Path: `Jenkinsfile`
+
+### 9. Configure the GitHub webhook
+
+GitHub repo → Settings → Webhooks → Add webhook:
+- Payload URL: `http://<EC2-PUBLIC-IP>:8080/github-webhook/`
+- Content type: `application/json`
+- Trigger: Just the push event
+
+### 10. Update Jenkinsfile values
+
+In the Jenkinsfile, replace:
+```groovy
+IMAGE_NAME = "yourdockerhubusername/your-app"
+```
+with your actual DockerHub username and chosen repo name.
+
+## Running the App Locally
 
 ```bash
 npm install
-```
-
-Start the application
-
-```bash
 npm start
 ```
+App runs on `http://localhost:3000`.
 
-Development mode
-
-```bash
-npm run dev
-```
-
----
-
-# Running Tests
-
-Execute all test cases
+## Running Tests
 
 ```bash
 npm test
 ```
 
-Supertest sends HTTP requests directly to the Express application without starting an actual server, making tests fast and reliable.
+## Triggering the Pipeline
 
-Example output
-
-```
-PASS tests/app.test.js
-
-✓ GET / returns status 200
-✓ GET / returns expected response
-```
-
----
-
-# Docker
-
-## Build Image
-
+Push any change to the `main` branch:
 ```bash
-docker build -t express-cicd .
+git add .
+git commit -m "trigger pipeline"
+git push
 ```
 
-## Run Container
+Jenkins will automatically detect the push (via webhook) and run the full pipeline. Progress can be monitored on the Jenkins dashboard under the job's Stage View.
 
+## Verifying Deployment
+
+On the EC2 instance:
 ```bash
-docker run -p 5000:5000 express-cicd
+docker ps
+curl localhost:3000
 ```
 
-Visit
-
+From a browser (if port 3000 is open in the Security Group):
 ```
-http://localhost:5000
-```
-
----
-
-# CI/CD Workflow
-
-The workflow file is located at
-
-```
-.github/workflows/main.yml
+http://<EC2-PUBLIC-IP>:3000
 ```
 
-The pipeline performs the following stages:
-
-### 1. Checkout Repository
-
-Downloads the latest source code from GitHub.
-
----
-
-### 2. Setup Node.js
-
-Installs the required Node.js version.
-
----
-
-### 3. Install Dependencies
-
-Runs
-
-```bash
-npm install
-```
-
----
-
-### 4. Run Tests
-
-Executes all Jest + Supertest test cases.
-
-Pipeline stops immediately if any test fails.
-
----
-
-### 5. Build Docker Image
-
-Creates a Docker image using the Dockerfile.
-
-```bash
-docker build
-```
-
----
-
-### 6. Login to Docker Hub
-
-Uses GitHub Secrets for secure authentication.
-
-Required secrets
-
-- DOCKER_USERNAME
-- DOCKER_PASSWORD
-
----
-
-### 7. Push Docker Image
-
-Publishes the latest Docker image to Docker Hub.
-
-Example
-
-```
-docker.io/username/express-cicd:latest
-```
-
----
-
-# GitHub Actions Workflow
-
-The workflow is triggered automatically when code is pushed to the main branch.
-
-```yaml
-on:
-  push:
-    branches:
-      - main
-```
-
-Pipeline flow
-
-```
-Push Code
-     │
-     ▼
-Checkout Repository
-     │
-     ▼
-Install Dependencies
-     │
-     ▼
-Run Supertest Tests
-     │
-     ▼
-Build Docker Image
-     │
-     ▼
-Login Docker Hub
-     │
-     ▼
-Push Docker Image
-```
-
----
-
-# Environment Variables
-
-If required, create a `.env` file.
-
-Example
-
-```
-PORT=5000
-```
-
----
-
-# Sample API
-
-## GET /
-
-Response
-
-```json
-{
-    "message":"Hello World"
-}
-```
-
----
-
-# Internship Task Explanation
-
-## Objective
-
-The objective of this task is to automate the application's build, testing, and deployment process using a CI/CD pipeline.
-
-Instead of manually running tests, building Docker images, and uploading them, GitHub Actions performs these tasks automatically whenever code is pushed to the repository.
-
----
-
-## Why CI/CD?
-
-Continuous Integration ensures that every code change is tested before being merged.
-
-Continuous Deployment automates packaging and deployment so applications can be delivered quickly and consistently.
-
-Benefits include:
-
-- Faster development
-- Reduced manual work
-- Early bug detection
-- Consistent deployments
-- Improved software quality
-
----
-
-## How This Project Meets the Task Requirements
-
-| Requirement | Implementation |
-|-------------|----------------|
-| Express Application | ✅ |
-| GitHub Repository | ✅ |
-| GitHub Actions Workflow | ✅ |
-| Dockerized Application | ✅ |
-| Supertest API Testing | ✅ |
-| Docker Hub Image Push | ✅ |
-| Trigger on Push to Main | ✅ |
-
----
-
-# Workflow Summary
-
-```
-Developer
-     │
-Push Code
-     │
-     ▼
-GitHub Repository
-     │
-     ▼
-GitHub Actions
-     │
-     ├── Install Dependencies
-     ├── Run Tests
-     ├── Build Docker Image
-     ├── Login Docker Hub
-     └── Push Image
-               │
-               ▼
-          Docker Hub
-```
-
----
-
-# Future Improvements
-
-- Deploy to Render
-- Deploy to AWS EC2
-- Deploy to Kubernetes
-- Add code coverage reports
-- Security vulnerability scanning
-- Multi-stage Docker builds
-- Automated version tagging
-
----
-
-# Author
-
-**Henil Korat**
-
-IT Engineering Student
-
-Learning DevOps, Backend Development, Docker, CI/CD, and Cloud Technologies.
+## Pipeline Stages
+
+| Stage | Description |
+|---|---|
+| Checkout | Pulls latest code from GitHub |
+| Install Dependencies | Runs `npm install` |
+| Run Tests | Runs `npm test` (Jest) |
+| Build Docker Image | Builds image tagged with build number and `latest` |
+| Push to DockerHub | Pushes both tags to DockerHub |
+| Deploy | Stops old container, runs new one |
+
+## Notes & Production Considerations
+
+- Jenkins dashboard is exposed on port 8080 with no HTTPS/auth restrictions beyond the built-in login — fine for learning, not recommended for production without a reverse proxy and TLS.
+- Mounting the Docker socket into the Jenkins container grants it root-equivalent access to the host; acceptable for a personal/learning setup, but should be handled more carefully in shared environments.
+- Stop the EC2 instance when not in use to avoid unnecessary costs.
